@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FormatNote - محرر النصوص ومغير صيغ الملفات</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        cairo: ['Cairo', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        matrix: {
+                            green: '#00ff66',
+                            darkgreen: '#003b15',
+                            glow: 'rgba(0, 255, 102, 0.4)',
+                            bg: '#050a06'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #030704;
+            color: #e2e8f0;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        /* Matrix Background Canvas */
+        #matrixCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Glassmorphism styling */
+        .glass-card {
+            background: rgba(8, 18, 12, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 255, 102, 0.25);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 255, 102, 0.15);
+        }
+
+        .glass-modal {
+            background: rgba(5, 12, 8, 0.95);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(0, 255, 102, 0.4);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 255, 102, 0.25);
+        }
+
+        .editor-textarea {
+            user-select: text !important;
+            font-family: 'JetBrains Mono', monospace;
+            caret-color: #00ff66;
+            line-height: 1.6;
+            tab-size: 4;
+        }
+
+        /* Custom Glow Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 20, 10, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 255, 102, 0.3);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 255, 102, 0.7);
+            box-shadow: 0 0 10px #00ff66;
+        }
+
+        .matrix-btn {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .matrix-btn:hover {
+            box-shadow: 0 0 15px rgba(0, 255, 102, 0.5);
+            border-color: #00ff66;
+            transform: translateY(-1px);
+        }
+        .matrix-btn:active {
+            transform: translateY(1px);
+        }
+
+        /* Input highlight */
+        .matrix-input:focus {
+            outline: none;
+            border-color: #00ff66;
+            box-shadow: 0 0 15px rgba(0, 255, 102, 0.4);
+        }
+
+        /* Preset Pill animation */
+        .ext-preset {
+            transition: all 0.2s ease;
+        }
+        .ext-preset:hover {
+            background: rgba(0, 255, 102, 0.2);
+            color: #00ff66;
+            border-color: #00ff66;
+            transform: scale(1.05);
+        }
+
+        /* Toast notification animation */
+        @keyframes slideIn {
+            from { transform: translateY(100%) scale(0.9); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        .toast-animate {
+            animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+    </style>
+</head>
+<body class="relative flex flex-col justify-between min-h-screen">
+
+    <canvas id="matrixCanvas"></canvas>
+
+    <!-- App Container -->
+    <div class="relative z-10 flex flex-col min-h-screen max-w-7xl w-full mx-auto p-3 sm:p-6">
+        
+        <header class="glass-card rounded-2xl p-4 mb-4 flex flex-wrap items-center justify-between gap-4 border border-matrix-green/30">
+            <div class="flex items-center space-x-3 space-x-reverse">
+                <div class="w-12 h-12 rounded-xl bg-matrix-green/10 border border-matrix-green flex items-center justify-center text-matrix-green text-2xl shadow-[0_0_15px_rgba(0,255,102,0.3)]">
+                    <i class="fa-solid fa-file-code"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-black text-white tracking-wide flex items-center gap-2">
+                        <span>Format</span><span class="text-matrix-green">Note</span>
+                        <span class="text-[10px] bg-matrix-green/20 text-matrix-green border border-matrix-green/40 px-2 py-0.5 rounded-full font-mono font-normal">v2.0</span>
+                    </h1>
+                    <p class="text-xs text-slate-400 font-medium">محرر النصوص ومحفظ الملفات بالصيغة والامتداد الذي تحدده</p>
+                </div>
+            </div>
+
+            <!-- Quick Action Tools Header -->
+            <div class="flex items-center flex-wrap gap-2">
+                <button onclick="loadSampleText('python')" class="matrix-btn text-xs bg-slate-900/80 hover:bg-slate-800 text-slate-300 px-3 py-2 rounded-xl border border-slate-700 flex items-center gap-1.5">
+                    <i class="fa-brands fa-python text-amber-400"></i>
+                    <span>عينة Python</span>
+                </button>
+                <button onclick="loadSampleText('html')" class="matrix-btn text-xs bg-slate-900/80 hover:bg-slate-800 text-slate-300 px-3 py-2 rounded-xl border border-slate-700 flex items-center gap-1.5">
+                    <i class="fa-brands fa-html5 text-orange-500"></i>
+                    <span>عينة HTML</span>
+                </button>
+                <button onclick="loadSampleText('markdown')" class="matrix-btn text-xs bg-slate-900/80 hover:bg-slate-800 text-slate-300 px-3 py-2 rounded-xl border border-slate-700 flex items-center gap-1.5">
+                    <i class="fa-solid fa-file-lines text-sky-400"></i>
+                    <span>عينة M.Down</span>
+                </button>
+                <button onclick="clearEditor()" class="matrix-btn text-xs bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 px-3 py-2 rounded-xl flex items-center gap-1.5">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>مسح النص</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 flex flex-col glass-card rounded-2xl overflow-hidden border border-matrix-green/30 shadow-2xl mb-4">
+            
+            <!-- Editor Toolbar Bar -->
+            <div class="bg-black/60 px-4 py-2.5 border-b border-matrix-green/20 flex flex-wrap items-center justify-between gap-3 text-xs">
+                
+                <div class="flex items-center space-x-2 space-x-reverse">
+                    <!-- Copy Button -->
+                    <button onclick="copyToClipboard()" class="matrix-btn bg-matrix-green/10 hover:bg-matrix-green/20 text-matrix-green border border-matrix-green/40 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold">
+                        <i class="fa-solid fa-copy"></i>
+                        <span>نسخ النص</span>
+                    </button>
+
+                    <!-- Text Case Toggle -->
+                    <button onclick="transformText('upper')" class="matrix-btn bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-2.5 py-1.5 rounded-lg" title="حروف كبيرة (UPPERCASE)">
+                        <i class="fa-solid fa-font"></i> ABC
+                    </button>
+                    <button onclick="transformText('lower')" class="matrix-btn bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-2.5 py-1.5 rounded-lg" title="حروف صغيرة (lowercase)">
+                        <i class="fa-solid fa-font"></i> abc
+                    </button>
+
+                    <!-- Font size adjuster -->
+                    <div class="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden px-1">
+                        <button onclick="changeFontSize(-1)" class="px-2 py-1 hover:text-matrix-green transition" title="تصغير الخط"><i class="fa-solid fa-minus text-[10px]"></i></button>
+                        <span id="fontSizeDisplay" class="px-1.5 font-mono text-[11px] text-matrix-green font-bold">14px</span>
+                        <button onclick="changeFontSize(1)" class="px-2 py-1 hover:text-matrix-green transition" title="تكبير الخط"><i class="fa-solid fa-plus text-[10px]"></i></button>
+                    </div>
+                </div>
+
+                <!-- Info Hint -->
+                <div class="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
+                    <span class="hidden md:inline-block"><i class="fa-regular fa-keyboard text-matrix-green ml-1"></i>اضغط <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-matrix-green border border-slate-700">Ctrl + S</kbd> للتنزيل السريع</span>
+                    <span id="saveStatusIndicator" class="text-emerald-400 flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>جاهز</span>
+                    </span>
+                </div>
+            </div>
+
+            <!-- Text Area Viewport -->
+            <div class="relative flex-1 bg-black/40 flex flex-col min-h-[350px] sm:min-h-[450px]">
+                <textarea 
+                    id="mainEditor" 
+                    dir="auto" 
+                    spellcheck="false"
+                    oninput="updateTextStats()" 
+                    onkeydown="handleKeyDown(event)"
+                    placeholder="// اكتب أو الصق النص هنا...
+// يمكن كتابة أي نوع من الأكواد واللغات (Python, HTML, C++, JS, JSON, SQL, TXT...)
+// عند النقر على زر 'تحميل وحفظ الملف' في الأسفل، ستتمكن من تغيير الصيغة والاسم بحرية تامّة." 
+                    class="editor-textarea flex-1 w-full h-full p-4 sm:p-6 bg-transparent text-slate-100 placeholder-slate-600 focus:outline-none resize-none text-sm leading-relaxed border-none"></textarea>
+            </div>
+
+            <!-- Live Word / Char / Size Counter Bar -->
+            <div class="bg-black/80 px-4 py-2 border-t border-matrix-green/20 flex flex-wrap items-center justify-between text-[11px] font-mono text-slate-400 gap-3">
+                <div class="flex items-center gap-4 flex-wrap">
+                    <div class="flex items-center gap-1">
+                        <span class="text-slate-500">الكلمات:</span>
+                        <span id="wordCount" class="text-matrix-green font-bold">0</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <span class="text-slate-500">الأحرف:</span>
+                        <span id="charCount" class="text-matrix-green font-bold">0</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <span class="text-slate-500">الأسطر:</span>
+                        <span id="lineCount" class="text-matrix-green font-bold">1</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <span class="text-slate-500">الحجم:</span>
+                        <span id="sizeCount" class="text-amber-400 font-bold">0 B</span>
+                    </div>
+                </div>
+
+                <div class="text-slate-500 text-[10px]">
+                    ترميز: <span class="text-slate-300 font-bold">UTF-8</span>
+                </div>
+            </div>
+        </main>
+
+        <!-- Main Download Trigger Bar -->
+        <div class="flex justify-center mb-4">
+            <button onclick="openDownloadModal()" class="matrix-btn w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-600 via-matrix-green to-teal-500 text-slate-950 font-black text-lg rounded-2xl shadow-[0_0_25px_rgba(0,255,102,0.4)] flex items-center justify-center gap-3 transition hover:scale-105 active:scale-95">
+                <i class="fa-solid fa-download text-xl"></i>
+                <span>حفظ الملف وتغير الصيغة الآن</span>
+                <i class="fa-solid fa-arrow-left text-sm opacity-70"></i>
+            </button>
+        </div>
+
+        <!-- Footer Info -->
+        <footer class="text-center text-xs text-slate-500 py-2">
+            <p>تطبيق FormatNote — مُصمم لحل مشكلة امتدادات وصيغ الملفات في نظام Windows 7 وجميع الأنظمة</p>
+        </footer>
+    </div>
+
+    <!-- DOWNLOAD MODAL DIALOG -->
+    <div id="downloadModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden opacity-0 transition-opacity duration-300">
+        <div id="modalContent" class="glass-modal w-full max-w-lg rounded-3xl p-6 sm:p-8 transform scale-95 transition-transform duration-300 text-right">
+            
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-4 border-b border-matrix-green/30 mb-6">
+                <div class="flex items-center space-x-3 space-x-reverse">
+                    <div class="w-10 h-10 rounded-xl bg-matrix-green/20 border border-matrix-green flex items-center justify-center text-matrix-green text-xl shadow-[0_0_10px_#00ff66]">
+                        <i class="fa-solid fa-file-export"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-white">تخصيص اسم وصيغة الملف</h3>
+                        <p class="text-xs text-slate-400">حدد الاسم والامتداد المناسب قبل الحفظ على جهازك</p>
+                    </div>
+                </div>
+                <button onclick="closeDownloadModal()" class="w-8 h-8 rounded-full bg-slate-900 border border-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Form Controls -->
+            <div class="space-y-5">
+                
+                <!-- File Name Field -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-pen text-matrix-green"></i>
+                        <span>اسم الملف:</span>
+                    </label>
+                    <input type="text" id="modalFileName" value="my_document" oninput="updateModalPreview()" class="matrix-input w-full bg-black/70 border border-matrix-green/40 rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-slate-600 transition" placeholder="اكتب اسم الملف هنا...">
+                </div>
+
+                <!-- Custom Extension Field -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-code text-matrix-green"></i>
+                        <span>امتداد / صيغة الملف (Extension):</span>
+                    </label>
+                    <div class="relative">
+                        <span class="absolute right-3 top-3.5 text-matrix-green font-mono font-bold text-sm">.</span>
+                        <input type="text" id="modalFileExt" value="txt" oninput="updateModalPreview()" class="matrix-input w-full bg-black/70 border border-matrix-green/40 rounded-xl pr-7 pl-4 py-3 text-sm font-mono text-matrix-green font-bold transition" placeholder="txt, py, html, js, json...">
+                    </div>
+                </div>
+
+                <!-- Preset Extension Quick Buttons -->
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-400 mb-2">اختصارات سريعة لأشهر الصيغ:</label>
+                    <div class="flex flex-wrap gap-1.5">
+                        <button onclick="setExtension('txt')" class="ext-preset text-xs font-mono bg-black/60 border border-slate-700 px-2.5 py-1 rounded-lg text-slate-300">.txt</button>
+                        <button onclick="setExtension('py')" class="ext-preset text-xs font-mono bg-black/60 border border-amber-500/40 px-2.5 py-1 rounded-lg text-amber-400">.py</button>
+                        <button onclick="setExtension('html')" class="ext-preset text-xs font-mono bg-black/60 border border-orange-500/40 px-2.5 py-1 rounded-lg text-orange-400">.html</button>
+                        <button onclick="setExtension('css')" class="ext-preset text-xs font-mono bg-black/60 border border-sky-500/40 px-2.5 py-1 rounded-lg text-sky-400">.css</button>
+                        <button onclick="setExtension('js')" class="ext-preset text-xs font-mono bg-black/60 border border-yellow-500/40 px-2.5 py-1 rounded-lg text-yellow-300">.js</button>
+                        <button onclick="setExtension('json')" class="ext-preset text-xs font-mono bg-black/60 border border-emerald-500/40 px-2.5 py-1 rounded-lg text-emerald-400">.json</button>
+                        <button onclick="setExtension('md')" class="ext-preset text-xs font-mono bg-black/60 border border-indigo-500/40 px-2.5 py-1 rounded-lg text-indigo-300">.md</button>
+                        <button onclick="setExtension('cpp')" class="ext-preset text-xs font-mono bg-black/60 border border-blue-500/40 px-2.5 py-1 rounded-lg text-blue-400">.cpp</button>
+                        <button onclick="setExtension('csv')" class="ext-preset text-xs font-mono bg-black/60 border border-teal-500/40 px-2.5 py-1 rounded-lg text-teal-300">.csv</button>
+                        <button onclick="setExtension('log')" class="ext-preset text-xs font-mono bg-black/60 border border-rose-500/40 px-2.5 py-1 rounded-lg text-rose-400">.log</button>
+                        <button onclick="setExtension('bat')" class="ext-preset text-xs font-mono bg-black/60 border border-purple-500/40 px-2.5 py-1 rounded-lg text-purple-300">.bat</button>
+                        <button onclick="setExtension('sql')" class="ext-preset text-xs font-mono bg-black/60 border border-cyan-500/40 px-2.5 py-1 rounded-lg text-cyan-300">.sql</button>
+                    </div>
+                </div>
+
+                <!-- Live Preview Result Box -->
+                <div class="bg-black/90 p-4 rounded-xl border border-matrix-green/30 text-center">
+                    <span class="text-xs text-slate-400 block mb-1">الاسم النهائي الذي سيتم حفظه على جهازك:</span>
+                    <span id="finalFileNamePreview" class="text-base font-mono font-bold text-matrix-green break-all shadow-[0_0_10px_rgba(0,255,102,0.2)] px-2 py-0.5 rounded bg-matrix-green/10">my_document.txt</span>
+                </div>
+            </div>
+
+            <!-- Modal Action Buttons -->
+            <div class="mt-6 flex items-center justify-end space-x-3 space-x-reverse">
+                <button onclick="closeDownloadModal()" class="px-5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 text-sm font-semibold hover:bg-slate-800 transition">
+                    إلغاء
+                </button>
+                <button onclick="executeDownload()" class="matrix-btn px-6 py-2.5 rounded-xl bg-matrix-green text-slate-950 text-sm font-bold shadow-[0_0_15px_#00ff66] flex items-center gap-2">
+                    <i class="fa-solid fa-download"></i>
+                    <span>تنزيل الملف فوراً</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Message Container -->
+    <div id="toastContainer" class="fixed bottom-6 left-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <script>
+        // Matrix Canvas Engine
+        const canvas = document.getElementById('matrixCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+
+        const katakana = 'アァカサタナハマヤャラワガザダバパイィキシチニヒミリヰギジヂビピウゥクスツヌフムユュルグズブヅプエェケセテネヘメレヱゲゼデベペオォコソトノホモヨョロヲゴゾドボポヴッン';
+        const latin = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+=';
+        const alphabet = katakana + latin;
+
+        const fontSize = 16;
+        let columns = Math.floor(canvas.width / fontSize);
+        let drops = [];
+
+        function initDrops() {
+            columns = Math.floor(canvas.width / fontSize);
+            drops = [];
+            for (let i = 0; i < columns; i++) {
+                drops[i] = Math.random() * -100;
+            }
+        }
+        initDrops();
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            initDrops();
+        });
+
+        function drawMatrix() {
+            ctx.fillStyle = 'rgba(3, 7, 4, 0.08)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.font = `${fontSize}px JetBrains Mono, monospace`;
+
+            for (let i = 0; i < drops.length; i++) {
+                const text = alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+                
+                const isHead = Math.random() > 0.88;
+                ctx.fillStyle = isHead ? '#ffffff' : '#00ff66';
+
+                if (!isHead && Math.random() > 0.95) {
+                    ctx.fillStyle = '#a3ffc2';
+                }
+
+                const x = i * fontSize;
+                const y = drops[i] * fontSize;
+
+                ctx.fillText(text, x, y);
+
+                if (y > canvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+                drops[i]++;
+            }
+        }
+
+        setInterval(drawMatrix, 33);
+
+        // State variables
+        const editor = document.getElementById('mainEditor');
+        let currentFontSize = 14;
+
+        // Tab Key handling inside editor (inserts 4 spaces instead of blurring)
+        function handleKeyDown(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = editor.selectionStart;
+                const end = editor.selectionEnd;
+
+                editor.value = editor.value.substring(0, start) + "    " + editor.value.substring(end);
+                editor.selectionStart = editor.selectionEnd = start + 4;
+                updateTextStats();
+            }
+
+            // Ctrl + S or Cmd + S shortcut for instant modal
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                openDownloadModal();
+            }
+        }
+
+        function updateTextStats() {
+            const text = editor.value;
+            
+            // Words
+            const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+            document.getElementById('wordCount').innerText = words.toLocaleString('ar-EG');
+
+            // Chars
+            document.getElementById('charCount').innerText = text.length.toLocaleString('ar-EG');
+
+            // Lines
+            const lines = text.split('\n').length;
+            document.getElementById('lineCount').innerText = lines.toLocaleString('ar-EG');
+
+            // Size in Bytes / KB
+            const bytes = new Blob([text]).size;
+            let sizeStr = bytes + ' B';
+            if (bytes >= 1024) {
+                sizeStr = (bytes / 1024).toFixed(2) + ' KB';
+            }
+            document.getElementById('sizeCount').innerText = sizeStr;
+
+            // Auto-save to LocalStorage
+            try {
+                localStorage.setItem('format_note_autosave', text);
+            } catch(err) {}
+        }
+
+        // Font Size Adjuster
+        function changeFontSize(delta) {
+            currentFontSize = Math.max(10, Math.min(32, currentFontSize + delta));
+            editor.style.fontSize = `${currentFontSize}px`;
+            document.getElementById('fontSizeDisplay').innerText = `${currentFontSize}px`;
+        }
+
+        // Upper / Lower Case Transformations
+        function transformText(type) {
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
+            const text = editor.value;
+
+            if (start !== end) {
+                const selectedText = text.substring(start, end);
+                const replacement = type === 'upper' ? selectedText.toUpperCase() : selectedText.toLowerCase();
+                editor.value = text.substring(0, start) + replacement + text.substring(end);
+                editor.selectionStart = start;
+                editor.selectionEnd = end;
+            } else {
+                editor.value = type === 'upper' ? text.toUpperCase() : text.toLowerCase();
+            }
+            updateTextStats();
+            showToast(type === 'upper' ? 'تم تحويل النص إلى أحرف كبيرة' : 'تم تحويل النص إلى أحرف صغيرة');
+        }
+
+        // Copy to clipboard fallback (works inside iframe)
+        function copyToClipboard() {
+            if (!editor.value.trim()) {
+                showToast('المحرر فارغ حالياً!', 'error');
+                return;
+            }
+
+            editor.select();
+            let success = false;
+            try {
+                success = document.execCommand('copy');
+            } catch (err) {
+                success = false;
+            }
+
+            if (success) {
+                showToast('تم نسخ النص إلى الحافظة بنجاح!');
+            } else {
+                showToast('تعذر النسخ تلقائياً، يرجى التحديد والنسخ يدوياً', 'error');
+            }
+        }
+
+        function clearEditor() {
+            if (editor.value.trim() && confirm('هل أنت تأكد من مسح محتوى المحرر بالكامل؟')) {
+                editor.value = '';
+                updateTextStats();
+                showToast('تم مسح المحرر');
+            }
+        }
+
+        function loadSampleText(type) {
+            if (editor.value.trim() && !confirm('سيتم استبدال النص الحالي بالعينة المختارة. هل تريد الاستمرار؟')) {
+                return;
+            }
+
+            if (type === 'python') {
+                editor.value = `# ===========================================\n# FormatNote Python Sample Script\n# ===========================================\n\nimport math\n\ndef calculate_circle_area(radius):\n    """حساب مساحة الدائرة بناءً على نصف القطر"""\n    if radius < 0:\n        raise ValueError("نصف القطر يجب أن يكون موجباً")\n    return math.pi * (radius ** 2)\n\nif __name__ == "__main__":
+    r = 5.0
+    area = calculate_circle_area(r)
+    print(f"مساحة الدائرة بنصف قطر {r} هي: {area:.2f}")\n`;
+                setExtension('py');
+            } else if (type === 'html') {
+                editor.value = `<!DOCTYPE html>\n<html lang="ar" dir="rtl">\n<head>\n    <meta charset="UTF-8">\n    <title>صفحة تجريبية</title>\n    <style>\n        body { font-family: sans-serif; background: #111; color: #00ff66; text-align: center; padding: 50px; }\n    </style>\n</head>\n<body>\n    <h1>مرحباً بك في FormatNote!</h1>\n    <p>تم حفظ هذا الملف بصيغة HTML جاهز للعرض في المتصفح.</p>\n</body>\n</html>`;
+                setExtension('html');
+            } else if (type === 'markdown') {
+                editor.value = `# قائمة ملاحظات FormatNote\n\n## المميزات الرائعة:\n- [x] كتابة وتحرير النصوص بسهولة\n- [x] تغيير امتداد الملف إلى أي صيغة ترغب بها (.py, .txt, .html, .js)\n- [x] متوافق تماماً مع نظام Windows 7\n\n> **ملاحظة:** يمكنك تجربة حفظ هذا الملف بصيغة \`.md\` الآن!`;
+                setExtension('md');
+            }
+
+            updateTextStats();
+            showToast('تم تحميل العينة في المحرر');
+        }
+
+        // Download Modal Functions
+        function openDownloadModal() {
+            const modal = document.getElementById('downloadModal');
+            const content = document.getElementById('modalContent');
+            
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                content.classList.remove('scale-95');
+                content.classList.add('scale-100');
+            }, 10);
+
+            updateModalPreview();
+            document.getElementById('modalFileName').focus();
+        }
+
+        function closeDownloadModal() {
+            const modal = document.getElementById('downloadModal');
+            const content = document.getElementById('modalContent');
+
+            modal.classList.add('opacity-0');
+            content.classList.remove('scale-100');
+            content.classList.add('scale-95');
+
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        function setExtension(ext) {
+            document.getElementById('modalFileExt').value = ext;
+            updateModalPreview();
+        }
+
+        function updateModalPreview() {
+            let name = document.getElementById('modalFileName').value.trim() || 'document';
+            let ext = document.getElementById('modalFileExt').value.trim().replace(/^\./, '') || 'txt';
+            
+            // Clean up invalid filename chars for Windows 7
+            name = name.replace(/[\\/:*?"<>|]/g, '_');
+
+            document.getElementById('finalFileNamePreview').innerText = `${name}.${ext}`;
+        }
+
+        function executeDownload() {
+            const textContent = editor.value;
+            let name = document.getElementById('modalFileName').value.trim() || 'document';
+            let ext = document.getElementById('modalFileExt').value.trim().replace(/^\./, '') || 'txt';
+            name = name.replace(/[\\/:*?"<>|]/g, '_');
+
+            const fullFileName = `${name}.${ext}`;
+
+            // Create Blob with proper UTF-8 encoding
+            const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+            
+            // Trigger download via anchor element
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = fullFileName;
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+
+            closeDownloadModal();
+            showToast(`تم تنزيل الملف باسم: ${fullFileName}`);
+        }
+
+        function showToast(msg, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            
+            const isError = type === 'error';
+            toast.className = `toast-animate px-4 py-3 rounded-xl border text-xs font-bold font-mono flex items-center gap-2 shadow-2xl ${
+                isError 
+                ? 'bg-rose-950/90 border-rose-500 text-rose-200' 
+                : 'bg-black/90 border-matrix-green text-matrix-green shadow-[0_0_15px_rgba(0,255,102,0.3)]'
+            }`;
+
+            toast.innerHTML = `
+                <i class="fa-solid ${isError ? 'fa-triangle-exclamation text-rose-400' : 'fa-circle-check text-matrix-green'} text-sm"></i>
+                <span>${msg}</span>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // On Load initialization
+        window.addEventListener('DOMContentLoaded', () => {
+            // Restore from localStorage if exists
+            try {
+                const saved = localStorage.getItem('format_note_autosave');
+                if (saved) {
+                    editor.value = saved;
+                }
+            } catch(e) {}
+            
+            updateTextStats();
+        });
+    </script>
+</body>
+</html>
